@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Copied in by the setup hook and kept out of git by .git/info/exclude. Written for an app whose
+# Copied in by the setup script and kept out of git by .git/info/exclude. Written for an app whose
 # Devise model is UserIdentity; change the model and the signed-in helper to match yours.
 # Signs a worktree's browser straight in as WT_AUTO_LOGIN_EMAIL, set in .env_overrides.rb.
 # Sign-in pages are skipped, so signing out and in as someone else still works.

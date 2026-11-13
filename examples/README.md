@@ -1,13 +1,13 @@
 # Examples
 
-Hooks and commands to copy into your own config and adapt. Each folder's `config` or `project.env` says where its files go.
+Scripts for wt's settings, and subcommands, to copy into your own config and adapt. `wt init` copies the ones you pick; otherwise each folder's `config` or `project.env` says where its files go.
 
 | Folder | What it does |
 |---|---|
 | [herdr](herdr) | Opens each worktree as a [herdr](https://herdr.dev) workspace. The "code" tab has the agent left, an editor right, and a terminal along the bottom. A "server" tab runs `wt serve`. It adds `wt review` (Codex reviews the branch in a split), `wt scratch`, and `wt layout`, and `keys.toml` has key bindings. |
 | [herdr-app](herdr-app) | The same for Herdr.app on macOS, through `herdr-app do`. `wt key <command>` runs a command from a key binding and closes its tab afterwards, and `keys.wt.json` has the bindings. |
 | [tmux](tmux) | Opens each worktree as a tmux window: the agent, a shell, and `wt serve`. |
-| [rails-postgres](rails-postgres) | Sets up a Rails app on PostgreSQL. Each worktree gets its own dev and test databases, cloned from an idle snapshot (`wt snapshot`). It symlinks the credentials keys, copies `node_modules` and built assets copy-on-write, and can sign the browser straight in. `wt serve` runs a Procfile with foreman, and the gc hook drops databases no checkout uses. |
+| [rails-postgres](rails-postgres) | Sets up a Rails app on PostgreSQL. Each worktree gets its own dev and test databases, cloned from an idle snapshot (`wt snapshot`). It symlinks the credentials keys, copies `node_modules` and built assets copy-on-write, and can sign the browser straight in. `wt serve` runs a Procfile with foreman, and its `WT_ON_GC` script drops databases no checkout uses. |
 | [linear](linear) | `wt new ABC-1234` asks Claude Code's Linear connector for the issue's branch. No API key is needed. |
 
 ## Setups
@@ -71,7 +71,7 @@ A day with it:
 
 ### Jeremy: Herdr.app on macOS, Rails on PostgreSQL
 
-macOS running Herdr.app with Jeremy's own layout and mods. The app is Rails on PostgreSQL 18 on APFS. Like Gavin's, it uses Linear and portless. The app has its `Procfile.pdev` in the repo, and his snapshot database is `<prefix>_snapshot`. His [herdr-config](https://github.com/Jeremy-Walton/herdr-config) runs its own macOS port of `wt` today. This is that setup expressed as `wt` hooks, adapted from his script, and it hasn't been run on a Mac yet.
+macOS running Herdr.app with Jeremy's own layout and mods. The app is Rails on PostgreSQL 18 on APFS. Like Gavin's, it uses Linear and portless. The app has its `Procfile.pdev` in the repo, and his snapshot database is `<prefix>_snapshot`. His [herdr-config](https://github.com/Jeremy-Walton/herdr-config) runs its own macOS port of `wt` today. This is that setup expressed as `wt` settings, adapted from his script, and it hasn't been run on a Mac yet.
 
 | Example | Copied to |
 |---|---|

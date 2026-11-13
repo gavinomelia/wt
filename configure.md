@@ -1,8 +1,10 @@
 # Configuring wt (for agents)
 
-You're setting up `wt` for someone. The request usually sounds like "configure herdr to work with wt" or "set up wt for my Rails app". Read this file through first, then work through the steps. The [README](README.md) is the reference for every setting, hook, and command.
+You're setting up `wt` for someone. The request usually sounds like "configure herdr to work with wt" or "set up wt for my Rails app". Read this file through first, then work through the steps. The [README](README.md) is the reference for every setting and command.
 
-`wt` only manages git worktrees. Everything else goes through hooks that you write or copy into the user's config:
+Don't confuse `wt`'s settings with agent hooks, such as Claude Code's. A `wt` setting like `WT_SERVE` simply holds a command that `wt` runs at a set moment.
+
+`wt` only manages git worktrees. Everything else goes through commands in its settings, usually scripts that you write or copy into the user's config:
 
 - the terminal or harness where a worktree opens;
 - the agent that starts in it;
@@ -34,6 +36,8 @@ Work out what you can yourself, by looking at their config files, the repo, and 
 
 ## 3. Start from an example
 
+For a Rails app on PostgreSQL, `wt init --yes` does this step and step 5 at once. It copies the scripts, guesses the database prefix, ticket key, and terminal, writes both settings files, and lists what the app still needs. It takes every default when it isn't run from a terminal, so check what it wrote and edit from there. Its other questions need a person at a terminal. Otherwise, copy from the examples yourself:
+
 | They use | Start from |
 |---|---|
 | herdr (the terminal app) | `examples/herdr` |
@@ -44,11 +48,11 @@ Work out what you can yourself, by looking at their config files, the repo, and 
 
 Each example folder has a `config` or `project.env` that says where its files go and which lines to add.
 
-**Copy example files into the user's config. Don't point settings at the installed package,** because upgrades replace it. Put hooks for a terminal or harness beside that tool's own config (for herdr, `~/.config/herdr/wt/`) or under `~/.config/wt/<tool>/`. Put hooks for a project under `~/.config/wt/<name>/`. Then adapt the copies. For example, change the Devise model in `worktree_auto_login.rb`, or the processes in the `Procfile`.
+**Copy example files into the user's config. Don't point settings at the installed package,** because upgrades replace it. Put scripts for a terminal or harness beside that tool's own config (for herdr, `~/.config/herdr/wt/`) or under `~/.config/wt/<tool>/`. Put scripts for a project under `~/.config/wt/<name>/`. Then adapt the copies. For example, change the Devise model in `worktree_auto_login.rb`, or the processes in the `Procfile`.
 
-For a tool with no example, write the hooks yourself (see step 4). Use `examples/tmux` as the model, since it's short.
+For a tool with no example, write the scripts yourself (see step 4). Use `examples/tmux` as the model, since it's short.
 
-## 4. The hook contract
+## 4. What each command must do
 
 The full table of variables is in the README. Whatever you write must keep to these rules.
 
@@ -64,15 +68,15 @@ The full table of variables is in the README. Whatever you write must keep to th
 - **`WT_ON_REMOVE`** closes what `WT_ON_OPEN` opened. It must never delete files, because `wt` removes the worktree after it. If it exits non-zero, `wt` keeps the worktree. Use that to refuse when closing would kill the pane running `wt`.
 - **`WT_ON_GC`** cleans up anything that belonged to worktrees that no longer exist. Work out what's still in use from `git -C "$WT_MAIN" worktree list`, and never from a record of what was created, because worktrees are also deleted by hand. Honour `WT_DRY_RUN=1` by printing what would go and changing nothing.
 - **`WT_TICKET_BRANCH`** prints just the branch name for the ticket in `WT_TICKET`, or nothing if it isn't found.
-- Hooks get every setting as an environment variable. Read project values (database prefix, app name) from there rather than hard-coding them.
-- Write hooks in bash that also runs on macOS's bash 3.2 when the user might be on a Mac. Avoid `${var,,}`, `mapfile`, and GNU-only flags.
+- Every command gets every setting as an environment variable. Read project values (database prefix, app name) from there rather than hard-coding them.
+- Write scripts in bash that also runs on macOS's bash 3.2 when the user might be on a Mac. Avoid `${var,,}`, `mapfile`, and GNU-only flags.
 
 Commands that belong to the setup rather than to `wt` go in a `wt-<name>` executable in a folder listed in `WT_COMMANDS`. Examples are `wt review`, `wt scratch`, and `wt snapshot`.
 
 ## 5. Write the settings
 
-- `~/.config/wt/config`: settings for every repo. That's the harness hooks (`WT_ON_OPEN`, `WT_ON_REMOVE`), `WT_COMMANDS`, the agent, and `WT_MAIN`, the repo key bindings use when fired from outside a repo.
-- `~/.config/wt/projects/<repo>.env`, where `<repo>` is the main checkout's folder name: the project hooks (`WT_ON_SETUP`, `WT_SERVE`, `WT_URL`, `WT_ON_GC`), ticket settings, and project values.
+- `~/.config/wt/config`: settings for every repo. That's the terminal's scripts (`WT_ON_OPEN`, `WT_ON_REMOVE`), `WT_COMMANDS`, the agent, and `WT_MAIN`, the repo key bindings use when fired from outside a repo.
+- `~/.config/wt/projects/<repo>.env`, where `<repo>` is the main checkout's folder name: the project's commands (`WT_ON_SETUP`, `WT_SERVE`, `WT_URL`, `WT_ON_GC`), ticket settings, and project values.
 
 Settings files are bash, sourced in that order. A `WT_*` variable already in the environment overrides both, so a key binding can run `WT_AGENT=codex wt new` to change one setting for one run. Use `$HOME` rather than `~` in paths.
 
@@ -83,8 +87,8 @@ Then add key bindings to their terminal. Bind `wt new`, `wt ls`, and `wt prune` 
 Run these in order, from the user's main checkout except where a step says otherwise. Don't skip any.
 
 1. From outside any repo (`cd ~`), run `wt config` and `wt path` if they set `WT_MAIN`. Key bindings often run from there.
-2. Run `wt config`. Both settings files should be found, every hook path should exist and be executable, and the expected commands should be listed.
-3. Run `wt gc --dry-run` **before anything that removes worktrees.** `wt new`, `wt rm`, and `wt prune` all run the gc hook, and a gc hook that misreads which worktrees are live will drop real data. Every name it lists must really be unused. If one isn't, fix the hook first.
+2. Run `wt config`. Both settings files should be found, every script path should exist and be executable, and the expected subcommands should be listed.
+3. Run `wt gc --dry-run` **before anything that removes worktrees.** `wt new`, `wt rm`, and `wt prune` all run `WT_ON_GC`, and a `WT_ON_GC` that misreads which worktrees are live will drop real data. Every name it lists must really be unused. If one isn't, fix that script first.
 4. Run `wt new wt-config-test` and check that it opens where it should, the agent starts, and setup and serve work. Then run `wt new wt-config-test` again. It should focus the same place, not open a second one.
 5. From another checkout, run `wt rm wt-config-test`, then `git branch -D wt-config-test`. Check that what opened has closed.
 6. Run `wt ls`.

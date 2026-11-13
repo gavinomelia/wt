@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt on-open hook for herdr. Focuses the worktree's workspace when it has one. Otherwise opens one
+# WT_ON_OPEN script for herdr. Focuses the worktree's workspace when it has one. Otherwise opens one
 # with a "code" tab (agent, editor, terminal) and, when WT_SERVE is set, a "server" tab running
 # `wt serve`, which sets the worktree up first. The agent starts on WT_PROMPT (a ticket or PR to
 # read), or continues its last conversation in a worktree it has been in before.

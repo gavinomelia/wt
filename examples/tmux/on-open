@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt on-open hook for tmux. Selects the worktree's window when it has one. Otherwise opens a window
+# WT_ON_OPEN script for tmux. Selects the worktree's window when it has one. Otherwise opens a window
 # named after the branch: the agent on the left, a shell on the right, and `wt serve` along the bottom
 # when WT_SERVE is set. Outside tmux it prints the path.
 set -euo pipefail

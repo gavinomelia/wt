@@ -1,4 +1,4 @@
-# wt settings for herdr. Copy these hooks to ~/.config/herdr/wt/ and these lines into ~/.config/wt/config.
+# wt settings for herdr. Copy these scripts to ~/.config/herdr/wt/ and these lines into ~/.config/wt/config.
 H=$HOME/.config/herdr/wt
 
 WT_ON_OPEN=$H/on-open

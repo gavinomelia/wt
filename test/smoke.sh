@@ -6,7 +6,7 @@ set -euo pipefail
 WT=$(cd "$(dirname "$0")/.." && pwd)/bin/wt
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-unset "${!WT_@}" 2>/dev/null || true
+unset "${!WT_@}" HERDR_PANE_ID HC_TERMINAL_ID TMUX 2>/dev/null || true
 export WT_CONFIG_DIR=$tmp/config HOME=$tmp GIT_CONFIG_GLOBAL=$tmp/gitconfig
 git config --global user.name test
 git config --global user.email test@example.com
@@ -81,5 +81,19 @@ cd "$tmp"
 [ "$("$WT" path)" = "$tmp/app" ] || fail "WT_MAIN outside a repo"; ok
 rm "$WT_CONFIG_DIR/config"
 "$WT" path 2>/dev/null && fail "path outside a repo without WT_MAIN"; ok
+
+# wt init with every default: Rails on PostgreSQL, no ticket key, nowhere to open
+git init -q "$tmp/shop_app"
+cd "$tmp/shop_app"
+mkdir config
+printf 'development:\n  database: shop_development\n' >config/database.yml
+out=$("$WT" init --yes)
+expect "init writes settings" "Wrote $WT_CONFIG_DIR/projects/shop_app.env" "$out"
+expect "init lists requirements" ".env_overrides.rb" "$out"
+settings=$(cat "$WT_CONFIG_DIR/projects/shop_app.env")
+expect "init reads the database prefix" "WT_DB_PREFIX=shop" "$settings"
+[ -x "$WT_CONFIG_DIR/rails-postgres/setup" ] || fail "init didn't copy the rails-postgres scripts"; ok
+expect "init settings load" "rails-postgres/serve" "$("$WT" config)"
+expect "init keeps existing settings" "Kept" "$("$WT" init --yes)"
 
 echo "ok: $pass checks"

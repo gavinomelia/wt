@@ -1,4 +1,4 @@
-# Run by the serve hook with foreman. `portless run` serves the main checkout at
+# Run by the serve script with foreman. `portless run` serves the main checkout at
 # https://$WT_APP.localhost and a linked worktree at https://<branch>.$WT_APP.localhost
 web: env RUBY_DEBUG_OPEN=true portless run --name "$WT_APP" bin/rails server
 js: yarn build --watch

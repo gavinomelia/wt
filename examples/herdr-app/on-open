@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt on-open hook for Herdr.app on macOS. Selects the worktree's space when it has one. Otherwise
+# WT_ON_OPEN script for Herdr.app on macOS. Selects the worktree's space when it has one. Otherwise
 # opens one with a "code" tab (agent, shell, editor) and, when WT_SERVE is set, a "server" tab running
 # `wt serve`, which sets the worktree up first. Without Herdr running, sets the worktree up here.
 set -euo pipefail

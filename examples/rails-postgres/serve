@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt serve hook: runs the Procfile (WT_PROCFILE, default Procfile.dev) with foreman, from the checkout
+# WT_SERVE script: runs the Procfile (WT_PROCFILE, default Procfile.dev) with foreman, from the checkout
 set -euo pipefail
 procfile=${WT_PROCFILE:-Procfile.dev}
 if command -v portless >/dev/null && ! portless doctor 2>&1 | grep -q "Proxy is responding"; then

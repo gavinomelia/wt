@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt on-gc hook: drops every <prefix>_* database that no checkout uses. Keeps the main checkout's
+# WT_ON_GC script: drops every <prefix>_* database that no checkout uses. Keeps the main checkout's
 # <prefix>_development and <prefix>_test, the snapshot, and whatever each worktree's .env_overrides.rb
 # names. A name plus digits is one of parallel_tests' copies of a database it keeps.
 # Anything else that makes checkouts of the app must write its database names to .env_overrides.rb

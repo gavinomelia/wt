@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt: one git worktree per branch, set up and torn down by your own hooks.
+# wt: one git worktree per branch, set up, run, and cleaned up by commands you choose.
 #
 #   wt new [target] [base]    Make a worktree, or reopen the one a branch already has. The target is
 #                             a branch, a PR (pr:1234 or #1234), or a ticket (ABC-1234, with
@@ -15,6 +15,8 @@
 #   wt prune                  Remove clean worktrees whose PR merged and delete their branches; ask
 #                             about ones whose PR closed or that sat idle; then wt gc
 #   wt gc [--dry-run]         Forget missing worktrees and run WT_ON_GC to clean up after them
+#   wt init [--yes]           Set up wt for the repo you're in, asking a few questions; enter at
+#                             every one sets up a Rails app on PostgreSQL
 #   wt config                 Show the settings in effect here and where they came from
 #   wt <name> [args]          Run the wt-<name> command from WT_COMMANDS or PATH
 #
@@ -55,7 +57,7 @@ for v in $(compgen -e); do
   esac
 done
 
-# set -a exports every setting, so hooks and wt-<name> commands see them all
+# set -a exports every setting, so the commands wt runs see them all
 source_config() { set -a; . "$1"; eval "$env_overrides"; set +a; }
 
 # The main checkout is the first entry of `git worktree list`, so this works from any worktree
@@ -117,9 +119,9 @@ base_ref() {
 
 has_remote() { git -C "$WT_MAIN" remote get-url "$WT_REMOTE" >/dev/null 2>&1; }
 
-# Runs a hook: a bash command from the settings. Its inputs are WT_* environment variables, and any
+# Runs a command from a setting such as WT_SERVE. Its inputs are WT_* environment variables, and any
 # args are there as "$@" without being appended to the command.
-run_hook() {
+run_setting() {
   local name=$1 cmd=$2
   shift 2
   bash -c "$cmd" "wt-$name" "$@"
@@ -188,7 +190,7 @@ resolve_target() {
   elif [ -n "$WT_TICKET_PREFIX" ] && [[ $(upper "$target") =~ $ticket_re ]]; then
     target=$(upper "$target")
     [ -n "$WT_TICKET_BRANCH" ] || die "set WT_TICKET_BRANCH to look up $target's branch, or pass the branch name"
-    WT_BRANCH=$(WT_TICKET=$target run_hook ticket-branch "$WT_TICKET_BRANCH" "$target") || true
+    WT_BRANCH=$(WT_TICKET=$target run_setting ticket-branch "$WT_TICKET_BRANCH" "$target") || true
     WT_BRANCH=$(trim "$WT_BRANCH")
     [ -n "$WT_BRANCH" ] || die "couldn't look up $target's branch; pass its branch name instead"
     WT_LABEL=$(label_for "$WT_BRANCH")
@@ -224,7 +226,7 @@ start_point() {
 open_worktree() {
   export WT_PATH WT_BRANCH WT_LABEL WT_NAME WT_PROMPT WT_CREATED
   if [ -n "$WT_ON_OPEN" ]; then
-    run_hook on-open "$WT_ON_OPEN"
+    run_setting on-open "$WT_ON_OPEN"
     return
   fi
   if [ "$WT_CREATED" = 1 ] && [ -n "$WT_ON_SETUP" ]; then
@@ -258,7 +260,7 @@ cmd_new() {
   WT_PATH=$(dir_for_branch "$WT_BRANCH")
   [ ! -e "$WT_PATH" ] || die "$WT_PATH already exists but isn't $WT_BRANCH's worktree"
 
-  [ -z "$WT_ON_GC" ] || (cmd_gc) >/dev/null || say "the gc hook failed; run wt gc to see why"
+  [ -z "$WT_ON_GC" ] || (cmd_gc) >/dev/null || say "WT_ON_GC failed; run wt gc to see why"
 
   fetch_branch "$WT_BRANCH"
   mkdir -p "$(dirname "$WT_PATH")"
@@ -281,7 +283,7 @@ cmd_setup() {
   cd "$root"
   WT_PATH=$root WT_BRANCH=$(git branch --show-current)
   export WT_PATH WT_BRANCH
-  run_hook on-setup "$WT_ON_SETUP"
+  run_setting on-setup "$WT_ON_SETUP"
   touch "$(setup_marker "$root")"
 }
 
@@ -305,7 +307,7 @@ cmd_url() {
   cd "$root"
   WT_PATH=$root WT_BRANCH=$(git branch --show-current)
   export WT_PATH WT_BRANCH
-  run_hook url "$WT_URL"
+  run_setting url "$WT_URL"
 }
 
 cmd_open() {
@@ -394,7 +396,7 @@ cmd_rm() {
   export WT_PATH WT_BRANCH
   # set -e is off when the caller is `cmd_rm || ...`, so each failure has to stop us explicitly
   if [ -n "$WT_ON_REMOVE" ]; then
-    run_hook on-remove "$WT_ON_REMOVE" || die "the on-remove hook failed, so $path was kept"
+    run_setting on-remove "$WT_ON_REMOVE" || die "WT_ON_REMOVE failed, so $path was kept"
   fi
   if [ -n "$(path_for_branch "$branch")" ]; then
     git -C "$WT_MAIN" worktree remove --force "$path" || die "couldn't remove $path"
@@ -484,7 +486,7 @@ cmd_prune() {
   cmd_gc
 }
 
-# Removing a checkout by hand, from git, or from another tool skips `wt rm`, so the gc hook sweeps up
+# Removing a checkout by hand, from git, or from another tool skips `wt rm`, so WT_ON_GC sweeps up
 # after all of them
 cmd_gc() {
   need_main
@@ -492,7 +494,177 @@ cmd_gc() {
   [ "${1:-}" = --dry-run ] && WT_DRY_RUN=1
   export WT_DRY_RUN
   [ -n "$WT_DRY_RUN" ] || git -C "$WT_MAIN" worktree prune
-  [ -z "$WT_ON_GC" ] || run_hook on-gc "$WT_ON_GC"
+  [ -z "$WT_ON_GC" ] || run_setting on-gc "$WT_ON_GC"
+}
+
+# --- init --------------------------------------------------------------------------------------
+
+# Asks with a default; enter takes it. With --yes, or without a terminal, the default is the answer.
+ask() {
+  local answer
+  if [ -n "$INIT_YES" ] || [ ! -t 0 ]; then echo "$2"; return; fi
+  read -rp "$1${2:+ [$2]}: " answer </dev/tty || true
+  echo "${answer:-$2}"
+}
+
+# Paths under $HOME are written as $HOME/..., so the settings move between machines
+home_path() { case $1 in "$HOME"/*) echo "\$HOME/${1#"$HOME"/}" ;; *) echo "$1" ;; esac; }
+# A value in single quotes, for the settings file
+quoted() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# Copies an example folder into the settings, keeping files already there (they may be adapted)
+copy_example() {
+  local from=$WT_HOME/examples/$1 to=$2 file
+  mkdir -p "$to"
+  for file in "$from"/*; do
+    case ${file##*/} in config | project.env | *.md) continue ;; esac
+    [ -e "$to/${file##*/}" ] || cp -p "$file" "$to/"
+  done
+}
+
+# The prefix of the dev database in config/database.yml: my_app for my_app_development
+guess_db_prefix() {
+  local prefix
+  prefix=$(sed -nE "s/^[[:space:]]*database:[[:space:]]*[\"']?([A-Za-z0-9_]+)_development.*/\1/p" \
+    "$WT_MAIN/config/database.yml" 2>/dev/null | head -1)
+  [ -n "$prefix" ] || prefix=$(printf '%s' "$WT_REPO" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')
+  echo "$prefix"
+}
+
+# The most common "<key>-<number>-" prefix among branch names, which is the ticket key
+guess_ticket_prefix() {
+  git -C "$WT_MAIN" for-each-ref --format='%(refname:lstrip=-1)' refs/heads "refs/remotes/$WT_REMOTE" 2>/dev/null |
+    sed -nE 's/^([a-z]+)-[0-9]+-.+/\1/p' | sort | uniq -c | sort -rn | awk 'NR == 1 && $1 > 2 { print $2 }'
+}
+
+guess_terminal() {
+  if [ -n "${HERDR_PANE_ID:-}" ]; then echo herdr
+  elif [ -n "${HC_TERMINAL_ID:-}" ]; then echo herdr-app
+  elif [ -n "${TMUX:-}" ]; then echo tmux
+  else echo none
+  fi
+}
+
+init_rails_postgres() {
+  local dir=$WT_CONFIG_DIR/rails-postgres prefix app procfile email
+  copy_example rails-postgres "$dir"
+  prefix=$(ask "Database prefix (the main checkout uses <prefix>_development)" "$(guess_db_prefix)")
+  app=$(ask "App name for portless URLs (<branch>.<app>.localhost)" "$(printf '%s' "$WT_REPO" | tr '_' '-')")
+  procfile=$dir/Procfile
+  [ ! -f "$WT_MAIN/Procfile.dev" ] || procfile=Procfile.dev
+  procfile=$(ask "Procfile wt serve runs" "$(home_path "$procfile")")
+  email=$(ask "Sign every worktree's browser in as (email, empty for none)" "")
+  dir=$(home_path "$dir")
+  settings="$settings
+# Rails on PostgreSQL: a database per worktree, served with foreman
+WT_ON_SETUP=\"$dir/setup\"
+WT_SERVE=\"$dir/serve\"
+WT_ON_GC=\"$dir/gc\"
+WT_COMMANDS=\"\${WT_COMMANDS:-$(home_path "$WT_CONFIG_DIR/commands")}:$dir\"   # adds wt snapshot
+WT_DB_PREFIX=$prefix
+WT_APP=$app
+WT_URL='portless get \"\$WT_APP\"'
+WT_PROCFILE=\"$procfile\"
+WT_AUTO_LOGIN_EMAIL=$email
+"
+  notes="$notes
+- The app must load a git-ignored .env_overrides.rb before its defaults, read DATABASE_NAME and
+  DATABASE_TEST_NAME from ENV, and allow ENV['ADDITIONAL_HOST'] in config.hosts.
+- Worktree URLs need portless (npm install -g portless; sudo portless service install).
+- Run wt snapshot once with the main checkout's server stopped, so new worktrees can clone the
+  database while it runs.$([ -z "$email" ] || printf '\n- Auto-login assumes a Devise model called UserIdentity; adapt %s/worktree_auto_login.rb.' "$dir")"
+}
+
+init_custom() {
+  local setup serve url
+  setup=$(ask "Command that sets up a new worktree (e.g. npm install; empty for none)" "")
+  serve=$(ask "Command that runs the app (e.g. npm run dev; empty for none)" "")
+  url=$(ask "Command that prints the app's URL (e.g. echo http://localhost:3000; empty for none)" "")
+  settings="$settings
+WT_ON_SETUP=$(quoted "$setup")
+WT_SERVE=$(quoted "${serve:+exec $serve}")
+WT_URL=$(quoted "$url")
+"
+}
+
+init_terminal() {
+  local terminal dir global=$WT_GLOBAL_CONFIG lines= commands
+  commands=$(home_path "$WT_CONFIG_DIR/commands")
+  if [ -f "$global" ] && grep -q '^WT_ON_OPEN=' "$global"; then
+    echo "Worktrees already open through WT_ON_OPEN in $global; leaving that alone."
+    return
+  fi
+  terminal=$(ask "Where should worktrees open: herdr, herdr-app, tmux, or none" "$(guess_terminal)")
+  case $terminal in
+    none) ;;
+    herdr | herdr-app | tmux)
+      dir=$WT_CONFIG_DIR/$terminal
+      copy_example "$terminal" "$dir"
+      dir=$(home_path "$dir")
+      lines="
+# Worktrees open in $terminal
+WT_ON_OPEN=\"$dir/on-open\"
+WT_ON_REMOVE=\"$dir/on-remove\"
+WT_COMMANDS=\"$commands:$dir\""
+      case $terminal in
+        herdr) notes="$notes
+- For key bindings, merge $WT_HOME/examples/herdr/keys.toml into ~/.config/herdr/config.toml." ;;
+        herdr-app) notes="$notes
+- For key bindings, merge $WT_HOME/examples/herdr-app/keys.wt.json into Herdr's key bindings." ;;
+      esac
+      ;;
+    *) die "pick herdr, herdr-app, tmux, or none" ;;
+  esac
+  # Key bindings run outside any repo, so they need a default one
+  if ! { [ -f "$global" ] && grep -q '^WT_MAIN=' "$global"; }; then
+    lines="$lines
+# The repo wt uses when run outside one, such as from a key binding
+WT_MAIN=\"$(home_path "$WT_MAIN")\""
+  fi
+  [ -n "$lines" ] || return 0
+  mkdir -p "$WT_CONFIG_DIR"
+  printf '%s\n' "$lines" >>"$global"
+  echo "Wrote $global"
+}
+
+cmd_init() {
+  local kind prefix answer settings= notes=
+  INIT_YES=
+  case ${1:-} in -y | --yes) INIT_YES=1 ;; "") ;; *) die "usage: wt init [--yes]" ;; esac
+  [ -n "${WT_MAIN:-}" ] || die "run wt init inside the repo you want to set up"
+  need_main
+  if [ -f "$WT_PROJECT_CONFIG" ]; then
+    answer=$(ask "$WT_PROJECT_CONFIG already exists. Replace it? (y/n)" n)
+    if [[ $answer != [yY]* ]]; then echo "Kept $WT_PROJECT_CONFIG"; return; fi
+  fi
+  [ -n "$INIT_YES" ] || [ ! -t 0 ] || echo "Setting up wt for $WT_REPO. Press enter to take the answer in brackets."
+
+  kind=$(ask "Project type: rails-postgres or custom" rails-postgres)
+  case $kind in
+    rails-postgres) init_rails_postgres ;;
+    custom) init_custom ;;
+    *) die "pick rails-postgres or custom" ;;
+  esac
+
+  prefix=$(ask "Ticket key for wt new ABC-1234 via Linear (empty for none)" "$(guess_ticket_prefix)")
+  if [ -n "$prefix" ]; then
+    copy_example linear "$WT_CONFIG_DIR/linear"
+    settings="$settings
+# wt new $(upper "$prefix")-1234 asks Linear for the issue's branch
+WT_TICKET_PREFIX=$prefix
+WT_TICKET_BRANCH=\"$(home_path "$WT_CONFIG_DIR/linear")/ticket-branch\"
+WT_TICKET_PROMPT='Read Linear issue %s. Summarize what it asks for and any open questions, then wait for instructions.'
+"
+  fi
+
+  mkdir -p "$(dirname "$WT_PROJECT_CONFIG")"
+  printf '# wt settings for %s, written by wt init\n%s' "$WT_REPO" "$settings" >"$WT_PROJECT_CONFIG"
+  echo "Wrote $WT_PROJECT_CONFIG"
+  init_terminal
+
+  echo
+  echo "Check it with: wt config"
+  [ -z "$notes" ] || printf 'Before the first wt new:%s\n' "$notes"
 }
 
 # --- config, commands --------------------------------------------------------------------------
@@ -556,6 +728,7 @@ case $command in
   prune) cmd_prune ;;
   gc) cmd_gc "$@" ;;
   config) cmd_config ;;
+  init) cmd_init "$@" ;;
   *)
     if ext=$(find_command "$command"); then
       [ -z "${WT_MAIN:-}" ] || need_main

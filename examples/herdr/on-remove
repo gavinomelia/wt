@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt on-remove hook for herdr: closes the worktree's workspace before wt removes the checkout.
+# WT_ON_REMOVE script for herdr: closes the worktree's workspace before wt removes the checkout.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 workspace=$(workspace_for_path "$WT_PATH")

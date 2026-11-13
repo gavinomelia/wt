@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt on-remove hook for Herdr.app: closes every space open on the worktree before wt removes it.
+# WT_ON_REMOVE script for Herdr.app: closes every space open on the worktree before wt removes it.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 herdr_running || exit 0

@@ -1,10 +1,10 @@
-# Shared by the rails-postgres hooks. Settings come from wt's config (see project.env).
+# Shared by the rails-postgres scripts. Settings come from wt's config (see project.env).
 DB_PREFIX=${WT_DB_PREFIX:?set WT_DB_PREFIX in your wt project settings}
 DEV_DB=${DB_PREFIX}_development
 TEST_DB=${DB_PREFIX}_test
 # Never connected to, so new worktrees can clone it while the main checkout's server runs
 SNAPSHOT_DB=${WT_SNAPSHOT_DB:-${DB_PREFIX}_wt_snapshot}
-HOOKS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wt: $*" >&2; exit 1; }
 

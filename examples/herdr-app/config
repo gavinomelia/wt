@@ -1,4 +1,4 @@
-# wt settings for Herdr.app on macOS. Copy these hooks to ~/.config/wt/herdr-app/ and these lines
+# wt settings for Herdr.app on macOS. Copy these scripts to ~/.config/wt/herdr-app/ and these lines
 # into ~/.config/wt/config. Then merge keys.wt.json into Herdr's key bindings.
 H=$HOME/.config/wt/herdr-app
 

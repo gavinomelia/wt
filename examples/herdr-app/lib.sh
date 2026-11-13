@@ -1,4 +1,4 @@
-# Shared by the Herdr.app hooks and commands. Drives Herdr.app on macOS through `herdr-app do`, and
+# Shared by the Herdr.app scripts and subcommands. Drives Herdr.app on macOS through `herdr-app do`, and
 # uses python3 (from the Xcode command line tools) to read its JSON.
 AGENT=${WT_AGENT:-claude}
 REVIEW_PROMPT=${WT_REVIEW_PROMPT:-'Review this branch against %s: the committed diff from the merge base plus any uncommitted changes. Another agent wrote it. Apply AGENTS.md and any docs/conventions files that match the changed paths. Do not edit files; running targeted specs is fine. Report findings ranked by severity, each with file:line, the failing scenario, and a suggested fix. If nothing is worth fixing, say so plainly.'}

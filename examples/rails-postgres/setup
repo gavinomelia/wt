@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt on-setup hook for a Rails app on PostgreSQL. Gives the worktree:
+# WT_ON_SETUP script for a Rails app on PostgreSQL. Gives the worktree:
 #   - its own dev database, cloned from the snapshot (or the dev database when there's none);
 #   - its own test databases, one per CPU when the app uses parallel_tests;
 #   - symlinks to the main checkout's credentials keys, and copies of node_modules and built assets;
@@ -24,7 +24,7 @@ fi
 
 if [ ! -f .env_overrides.rb ]; then
   cat >.env_overrides.rb <<RUBY
-# Written by wt's setup hook: this worktree's own databases, so migrations and specs don't collide
+# Written by wt's setup script: this worktree's own databases, so migrations and specs don't collide
 ENV['DATABASE_NAME'] ||= '${DB_PREFIX}_${slug}'
 ENV['DATABASE_TEST_NAME'] ||= '${DB_PREFIX}_test_${slug}'
 RUBY
@@ -38,7 +38,7 @@ if [ -n "${WT_AUTO_LOGIN_EMAIL:-}" ]; then
   initializer=config/initializers/worktree_auto_login.rb
   exclude=$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude
   grep -qxF "/$initializer" "$exclude" 2>/dev/null || echo "/$initializer" >>"$exclude"
-  [ -e "$initializer" ] || cp "${WT_AUTO_LOGIN_SOURCE:-$HOOKS/worktree_auto_login.rb}" "$initializer"
+  [ -e "$initializer" ] || cp "${WT_AUTO_LOGIN_SOURCE:-$HERE/worktree_auto_login.rb}" "$initializer"
 fi
 
 git submodule update --init --recursive --quiet

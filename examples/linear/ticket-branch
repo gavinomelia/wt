@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WT_TICKET_BRANCH hook for Linear: prints the branch name Linear suggests for the issue in WT_TICKET.
+# WT_TICKET_BRANCH script for Linear: prints the branch name Linear suggests for the issue in WT_TICKET.
 # Asks a headless Claude Code through the Linear connector your account already has, so no API key.
 set -euo pipefail
 echo "Looking up $WT_TICKET in Linear..." >&2

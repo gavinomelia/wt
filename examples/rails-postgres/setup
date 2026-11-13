@@ -4,6 +4,7 @@
 #   - its own test databases, one per CPU when the app uses parallel_tests;
 #   - symlinks to the main checkout's credentials keys, and copies of node_modules and built assets;
 #   - a git-ignored .env_overrides.rb naming those databases, which the app loads before its defaults;
+#     it also loads the main checkout's .env_overrides.rb, so local secrets set there reach the worktree;
 #   - optionally, a dev-only initializer that signs the browser straight in as WT_AUTO_LOGIN_EMAIL.
 # Safe to rerun: what already exists is kept.
 set -euo pipefail
@@ -31,6 +32,8 @@ RUBY
   # Rails' default ".localhost" allows one subdomain level; portless serves <branch>.<app>.localhost
   [ -z "${WT_APP:-}" ] || echo "ENV['ADDITIONAL_HOST'] ||= '.${WT_APP}.localhost'" >>.env_overrides.rb
   [ -z "${WT_AUTO_LOGIN_EMAIL:-}" ] || echo "ENV['WT_AUTO_LOGIN_EMAIL'] ||= '${WT_AUTO_LOGIN_EMAIL}'" >>.env_overrides.rb
+  # Loaded last, so a ||= in the main file can't replace the names above; a plain = there would
+  [ ! -f "$WT_MAIN/.env_overrides.rb" ] || echo "load '$WT_MAIN/.env_overrides.rb'" >>.env_overrides.rb
 fi
 
 # The exclude file is shared by every worktree, so the initializer can never be committed

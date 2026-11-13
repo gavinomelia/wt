@@ -178,7 +178,3 @@ npm test             # test/smoke.sh: wt against a throwaway repo with stub hook
 ```
 
 Keep `bin/wt` free of anything specific to one terminal, agent, or framework; those belong in hooks and `examples/`. Keep it running on macOS's bash 3.2: no `${var,,}`, `mapfile`, or GNU-only flags.
-
-## Credits
-
-`wt` started in [gavinomelia/herdr-config](https://github.com/gavinomelia/herdr-config). [Jeremy Walton](https://github.com/Jeremy-Walton/herdr-config) ported it to Herdr.app on macOS, and that port showed which parts were really `wt` and which were one person's setup.

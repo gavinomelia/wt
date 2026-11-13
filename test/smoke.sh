@@ -4,7 +4,8 @@
 set -euo pipefail
 
 WT=$(cd "$(dirname "$0")/.." && pwd)/bin/wt
-tmp=$(mktemp -d)
+# pwd -P resolves macOS's /var -> /private/var link, so paths match what git prints
+tmp=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 unset "${!WT_@}" HERDR_PANE_ID HC_TERMINAL_ID TMUX 2>/dev/null || true
 export WT_CONFIG_DIR=$tmp/config HOME=$tmp GIT_CONFIG_GLOBAL=$tmp/gitconfig

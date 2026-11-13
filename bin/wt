@@ -45,8 +45,18 @@ WT_CONFIG_DIR=${WT_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/wt}
 WT_GLOBAL_CONFIG=$WT_CONFIG_DIR/config
 WT_PROJECT_CONFIG=
 
+# What's already in the environment beats the settings files, so `WT_AGENT=codex wt new` works even
+# when a file sets WT_AGENT. WT_MAIN is left out because the checkout you're in decides it.
+env_overrides=
+for v in $(compgen -e); do
+  case $v in
+    WT_MAIN | WT_REPO | WT_HOME) ;;
+    WT_*) env_overrides="$env_overrides$v=$(printf %q "${!v}");" ;;
+  esac
+done
+
 # set -a exports every setting, so hooks and wt-<name> commands see them all
-source_config() { set -a; . "$1"; set +a; }
+source_config() { set -a; . "$1"; eval "$env_overrides"; set +a; }
 
 # The main checkout is the first entry of `git worktree list`, so this works from any worktree
 main_of() { { git -C "$1" worktree list --porcelain 2>/dev/null || true; } | sed -n '1s/^worktree //p'; }

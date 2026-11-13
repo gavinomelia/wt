@@ -74,16 +74,19 @@ Commands that belong to the setup rather than to `wt` go in a `wt-<name>` execut
 - `~/.config/wt/config`: settings for every repo. That's the harness hooks (`WT_ON_OPEN`, `WT_ON_REMOVE`), `WT_COMMANDS`, the agent, and `WT_MAIN`, the repo key bindings use when fired from outside a repo.
 - `~/.config/wt/projects/<repo>.env`, where `<repo>` is the main checkout's folder name: the project hooks (`WT_ON_SETUP`, `WT_SERVE`, `WT_URL`, `WT_ON_GC`), ticket settings, and project values.
 
+Settings files are bash, sourced in that order. A `WT_*` variable already in the environment overrides both, so a key binding can run `WT_AGENT=codex wt new` to change one setting for one run. Use `$HOME` rather than `~` in paths.
+
 Then add key bindings to their terminal. Bind `wt new`, `wt ls`, and `wt prune` at least. These three need a terminal to read from or print to. In a popup that closes when the command exits, end with a read: `wt ls; read -rsn1`.
 
 ## 6. Verify
 
-Run these from the user's main checkout. Don't skip any.
+Run these in order, from the user's main checkout except where a step says otherwise. Don't skip any.
 
-1. Run `wt config`. Both settings files should be found, every hook path should exist and be executable, and the expected commands should be listed.
-2. Run `wt gc --dry-run` **before anything that removes worktrees.** `wt new`, `wt rm`, and `wt prune` all run the gc hook, and a gc hook that misreads which worktrees are live will drop real data. Every name it lists must really be unused. If one isn't, fix the hook first.
-3. Run `wt new wt-config-test` and check that it opens where it should, the agent starts, and setup and serve work. Then run `wt new wt-config-test` again. It should focus the same place, not open a second one.
-4. From another checkout, run `wt rm wt-config-test`, then `git branch -D wt-config-test`. Check that what opened has closed.
-5. Run `wt ls`.
+1. From outside any repo (`cd ~`), run `wt config` and `wt path` if they set `WT_MAIN`. Key bindings often run from there.
+2. Run `wt config`. Both settings files should be found, every hook path should exist and be executable, and the expected commands should be listed.
+3. Run `wt gc --dry-run` **before anything that removes worktrees.** `wt new`, `wt rm`, and `wt prune` all run the gc hook, and a gc hook that misreads which worktrees are live will drop real data. Every name it lists must really be unused. If one isn't, fix the hook first.
+4. Run `wt new wt-config-test` and check that it opens where it should, the agent starts, and setup and serve work. Then run `wt new wt-config-test` again. It should focus the same place, not open a second one.
+5. From another checkout, run `wt rm wt-config-test`, then `git branch -D wt-config-test`. Check that what opened has closed.
+6. Run `wt ls`.
 
 Finally, tell the user which files you wrote, the key bindings, and anything you couldn't test.

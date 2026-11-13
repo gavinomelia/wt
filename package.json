@@ -12,7 +12,17 @@
     "README.md",
     "LICENSE"
   ],
-  "keywords": ["git", "worktree", "worktrees", "cli", "agents", "claude", "codex", "herdr", "tmux"],
+  "keywords": [
+    "git",
+    "worktree",
+    "worktrees",
+    "cli",
+    "agents",
+    "claude",
+    "codex",
+    "herdr",
+    "tmux"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gavinomelia/wt.git"
@@ -21,8 +31,14 @@
   "bugs": "https://github.com/gavinomelia/wt/issues",
   "author": "Gavin O'Melia",
   "license": "MIT",
-  "os": ["darwin", "linux"],
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "publishConfig": {
     "access": "public"
+  },
+  "scripts": {
+    "test": "bash test/smoke.sh"
   }
 }

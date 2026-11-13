@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# wt review [base]: Codex reviews this branch against base (default WT_BASE), read-only. Bound to a
+# key that opens it in a pane on the right (see keys.wt.json).
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+base=${1:-${WT_BASE:-main}}
+cd "$(git rev-parse --show-toplevel)"
+exec codex --approve-for-me "${REVIEW_PROMPT//%s/$base}"

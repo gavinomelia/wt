@@ -1,0 +1,28 @@
+{
+  "name": "@gavinomelia/wt",
+  "version": "0.1.0",
+  "description": "One git worktree per branch, opened, set up, and cleaned up by your own hooks. Wire it into herdr, tmux, or any agent harness.",
+  "bin": {
+    "wt": "bin/wt"
+  },
+  "files": [
+    "bin",
+    "examples",
+    "configure.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": ["git", "worktree", "worktrees", "cli", "agents", "claude", "codex", "herdr", "tmux"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gavinomelia/wt.git"
+  },
+  "homepage": "https://github.com/gavinomelia/wt#readme",
+  "bugs": "https://github.com/gavinomelia/wt/issues",
+  "author": "Gavin O'Melia",
+  "license": "MIT",
+  "os": ["darwin", "linux"],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# wt layout: splits the Herdr terminal you're in into the code layout and starts the agent in it
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+herdr_running || die "Herdr isn't running"
+[ -n "${HC_TERMINAL_ID:-}" ] || die "run this in a Herdr terminal"
+pane=$(pane_of_terminal "$HC_TERMINAL_ID")
+[ -n "$pane" ] || die "this terminal has no pane"
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git checkout"
+name=$(branch_name "$root")
+code_layout "$pane"
+exec $(agent_argv "${name:-scratch}" | python3 -c 'import json, shlex, sys; print(shlex.join(json.load(sys.stdin)))')

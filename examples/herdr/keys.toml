@@ -1,0 +1,64 @@
+# wt key bindings for herdr. Merge into ~/.config/herdr/config.toml, then `herdr server reload-config`.
+# Popups close when their command exits, so listings and errors wait for a key.
+
+# Takes a branch, a ticket (ABC-1234), or a PR (pr:1234)
+[[keys.command]]
+key = "alt+t"
+type = "popup"
+description = "new worktree (wt new)"
+command = 'wt new || read -rsn1 -p "press any key"'
+width = "70%"
+height = "40%"
+
+# Same, with Codex in place of Claude
+[[keys.command]]
+key = "alt+shift+t"
+type = "popup"
+description = "new worktree with Codex (WT_AGENT=codex wt new)"
+command = 'WT_AGENT=codex wt new || read -rsn1 -p "press any key"'
+width = "70%"
+height = "40%"
+
+[[keys.command]]
+key = "alt+o"
+type = "shell"
+description = "open this checkout in the browser (wt open)"
+command = "wt open"
+
+# Opens beside the focused pane, in its checkout
+[[keys.command]]
+key = "alt+r"
+type = "shell"
+description = "Codex reviews this branch (wt review)"
+command = "wt review"
+
+[[keys.command]]
+key = "alt+w"
+type = "popup"
+description = "every worktree with its PR, CI, and changes (wt ls)"
+command = 'wt ls; read -rsn1 -p "press any key"'
+width = "90%"
+height = "50%"
+
+# Asks before removing worktrees that were abandoned rather than merged
+[[keys.command]]
+key = "alt+shift+w"
+type = "popup"
+description = "remove merged and abandoned worktrees (wt prune)"
+command = 'wt prune; read -rsn1 -p "press any key"'
+width = "80%"
+height = "50%"
+
+# A scratch tab beside this workspace's code tab, on the same checkout; pressing it again focuses it
+[[keys.command]]
+key = "alt+s"
+type = "shell"
+description = "scratch tab in this workspace (wt scratch)"
+command = "wt scratch"
+
+# Branchless workspace on the main checkout for questions and one-off changes
+[[keys.command]]
+key = "alt+shift+s"
+type = "shell"
+description = "scratch workspace on the main checkout (wt scratch main)"
+command = "wt scratch main"

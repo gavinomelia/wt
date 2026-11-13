@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# wt scratch: a "scratch" space on the main checkout with the code layout, for questions and one-off
+# changes that don't need a branch
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+herdr_running || die "Herdr isn't running"
+[ -n "${WT_MAIN:-}" ] || die "run wt scratch inside a git checkout, or set WT_MAIN"
+open_space scratch "$WT_MAIN" "$(agent_argv scratch)"

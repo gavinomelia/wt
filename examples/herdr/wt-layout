@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# wt layout: splits the pane you're in into the code layout (agent, editor, terminal), for a checkout
+# made some other way, such as from herdr's sidebar
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+[ -n "${HERDR_PANE_ID:-}" ] || die "run wt layout inside a herdr pane"
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git checkout"
+herdr tab rename "$HERDR_TAB_ID" code >/dev/null
+branch=$(branch_name "$root")
+dev_layout "$HERDR_PANE_ID" "$root" "${branch:-$(basename "$root")}"

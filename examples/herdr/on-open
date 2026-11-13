@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# wt on-open hook for herdr. Focuses the worktree's workspace when it has one. Otherwise opens one
+# with a "code" tab (agent, editor, terminal) and, when WT_SERVE is set, a "server" tab running
+# `wt serve`, which sets the worktree up first. The agent starts on WT_PROMPT (a ticket or PR to
+# read), or continues its last conversation in a worktree it has been in before.
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+workspace=$(workspace_for_path "$WT_PATH")
+if [ -n "$workspace" ]; then
+  herdr workspace focus "$workspace" >/dev/null
+  echo "Switched to $WT_BRANCH's workspace"
+  exit
+fi
+
+json=$(herdr worktree open --cwd "$WT_MAIN" --path "$WT_PATH" --label "$WT_LABEL" --focus)
+workspace=$(jq -r '.result.workspace.workspace_id' <<<"$json")
+pane=$(jq -r '.result.root_pane.pane_id' <<<"$json")
+tab=$(jq -r '.result.tab.tab_id' <<<"$json")
+herdr tab rename "$tab" code >/dev/null
+
+if [ -n "${WT_SERVE:-}" ]; then
+  server_pane=$(herdr tab create --workspace "$workspace" --cwd "$WT_PATH" --label server | jq -r '.result.root_pane.pane_id')
+  herdr pane run "$server_pane" "wt serve" >/dev/null
+fi
+
+if [ -n "${WT_PROMPT:-}" ]; then
+  dev_layout "$pane" "$WT_PATH" "$WT_NAME" "$WT_PROMPT"
+else
+  dev_layout "$pane" "$WT_PATH" "$WT_NAME" $(resume_args "$WT_PATH")
+fi
+
+if [ "$WT_CREATED" = 1 ]; then echo "Created $WT_PATH"; else echo "Reopened $WT_PATH"; fi
+url=$(cd "$WT_PATH" && wt url 2>/dev/null) && [ -n "$url" ] && echo "The app will be at $url"
+exit 0

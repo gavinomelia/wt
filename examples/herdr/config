@@ -1,0 +1,11 @@
+# wt settings for herdr. Copy these hooks to ~/.config/herdr/wt/ and these lines into ~/.config/wt/config.
+H=$HOME/.config/herdr/wt
+
+WT_ON_OPEN=$H/on-open
+WT_ON_REMOVE=$H/on-remove
+WT_COMMANDS=$HOME/.config/wt/commands:$H   # adds wt scratch, wt layout, wt review
+
+# The agent in the code layout: claude or codex (`WT_AGENT=codex wt new` for one worktree)
+WT_AGENT=claude
+# What opens in the editor pane
+WT_EDITOR_COMMAND=nvim

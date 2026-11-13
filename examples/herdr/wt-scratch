@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# wt scratch [main]: a "scratch" tab with the code layout in this workspace, on its checkout, for
+# questions on the side; pressing it again focuses it. With `main`, or outside herdr, a new
+# scratch-N workspace on the main checkout instead, for work that needs no branch.
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+scratch_workspace() {
+  local labels n=1 name json
+  [ -n "${WT_MAIN:-}" ] || die "run wt scratch main inside a git checkout, or set WT_MAIN"
+  labels=$(herdr workspace list | jq -r '.result.workspaces[].label')
+  while grep -qxF "scratch-$n" <<<"$labels"; do n=$((n + 1)); done
+  name=scratch-$n
+  json=$(herdr workspace create --cwd "$WT_MAIN" --label "$name" --focus)
+  herdr tab rename "$(jq -r '.result.tab.tab_id' <<<"$json")" code >/dev/null
+  dev_layout "$(jq -r '.result.root_pane.pane_id' <<<"$json")" "$WT_MAIN" "$name"
+}
+
+pane=${HERDR_ACTIVE_PANE_ID:-${HERDR_PANE_ID:-}}
+if [ "${1:-}" = main ] || [ -z "$pane" ]; then
+  scratch_workspace
+  exit
+fi
+
+info=$(herdr pane get "$pane")
+workspace=$(jq -r '.result.pane.workspace_id' <<<"$info")
+dir=$(jq -r '.result.pane.foreground_cwd // .result.pane.cwd' <<<"$info")
+tab=$(herdr tab list --workspace "$workspace" | jq -r '[.result.tabs[] | select(.label == "scratch")][0].tab_id // empty')
+if [ -n "$tab" ]; then
+  herdr tab focus "$tab" >/dev/null
+  exit
+fi
+
+root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || root=$dir
+branch=$(branch_name "$root")
+pane=$(herdr tab create --workspace "$workspace" --cwd "$root" --label scratch --focus | jq -r '.result.root_pane.pane_id')
+dev_layout "$pane" "$root" "scratch-${branch:-$(basename "$root")}"

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# WT_TICKET_BRANCH hook for Linear: prints the branch name Linear suggests for the issue in WT_TICKET.
+# Asks a headless Claude Code through the Linear connector your account already has, so no API key.
+set -euo pipefail
+echo "Looking up $WT_TICKET in Linear..." >&2
+(cd "$HOME" && claude -p --model haiku --allowedTools mcp__claude_ai_Linear__get_issue --output-format json \
+  "Use the Linear get_issue tool for $WT_TICKET. Reply with ONLY a JSON object {\"branch\": <its gitBranchName>} and nothing else." \
+  </dev/null 2>/dev/null) | jq -r '.result // empty' | grep -o '{.*}' | jq -r '.branch // empty'

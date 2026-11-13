@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# wt on-open hook for Herdr.app on macOS. Selects the worktree's space when it has one. Otherwise
+# opens one with a "code" tab (agent, shell, editor) and, when WT_SERVE is set, a "server" tab running
+# `wt serve`, which sets the worktree up first. Without Herdr running, sets the worktree up here.
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+if ! herdr_running; then
+  [ "$WT_CREATED" = 0 ] || [ -z "${WT_ON_SETUP:-}" ] || (cd "$WT_PATH" && wt setup)
+  echo "Worktree: $WT_PATH"
+  [ -z "${WT_SERVE:-}" ] || echo "Next:     cd '$WT_PATH' && wt serve"
+  exit
+fi
+
+space=$(spaces_in_folder "$WT_PATH" | head -1)
+if [ -n "$space" ]; then
+  herdr-app do space.select --id "$space" >/dev/null
+  echo "Switched to $WT_BRANCH's space"
+  exit
+fi
+
+if [ "$WT_CREATED" = 1 ]; then
+  argv=$(agent_argv "$WT_NAME")
+else
+  argv=$(agent_argv "$WT_NAME" $(resume_flag "$WT_PATH"))
+fi
+open_space "$WT_LABEL" "$WT_PATH" "$argv" "${WT_SERVE:+wt serve}" "${WT_PROMPT:-}"
+if [ "$WT_CREATED" = 1 ]; then echo "Created $WT_PATH"; else echo "Reopened $WT_PATH"; fi

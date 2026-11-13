@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# wt on-open hook for tmux. Selects the worktree's window when it has one. Otherwise opens a window
+# named after the branch: the agent on the left, a shell on the right, and `wt serve` along the bottom
+# when WT_SERVE is set. Outside tmux it prints the path.
+set -euo pipefail
+if [ -z "${TMUX:-}" ]; then
+  echo "$WT_PATH"
+  exit
+fi
+
+window=$(tmux list-windows -a -F '#{window_id} #{@wt_path}' | awk -v p="$WT_PATH" '$2 == p { print $1; exit }')
+if [ -n "$window" ]; then
+  tmux switch-client -t "$window" 2>/dev/null || tmux select-window -t "$window"
+  exit
+fi
+
+agent=${WT_AGENT:-claude}
+if [ -n "${WT_PROMPT:-}" ]; then
+  agent="$agent $(printf '%q' "$WT_PROMPT")"
+elif [ "$WT_CREATED" = 0 ] && [ "$agent" = claude ]; then
+  agent="claude --continue"
+fi
+
+window=$(tmux new-window -P -F '#{window_id}' -n "$WT_NAME" -c "$WT_PATH")
+tmux set-option -w -t "$window" @wt_path "$WT_PATH"
+[ -z "${WT_SERVE:-}" ] || tmux split-window -v -l 20% -d -t "$window" -c "$WT_PATH" "wt serve; exec \$SHELL"
+tmux split-window -h -l 35% -d -t "$window" -c "$WT_PATH"
+tmux send-keys -t "$window" "$agent" Enter

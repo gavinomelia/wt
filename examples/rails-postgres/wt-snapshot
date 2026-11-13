@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# wt snapshot: refreshes the idle copy of the dev database that new worktrees clone from. Postgres
+# can't copy a database with connections, so stop the main checkout's server, worker, and console first.
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+next=${SNAPSHOT_DB}_next
+psql -X -d postgres -q -c "DROP DATABASE IF EXISTS \"$next\""
+clone_db "$DEV_DB" "$next" ||
+  die "stop the main checkout's server, worker, and console so $DEV_DB is idle, then rerun wt snapshot"
+psql -X -d postgres -q -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$SNAPSHOT_DB\"" -c "ALTER DATABASE \"$next\" RENAME TO \"$SNAPSHOT_DB\""
+echo "Snapshot $SNAPSHOT_DB is up to date"

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# wt on-gc hook: drops every <prefix>_* database that no checkout uses. Keeps the main checkout's
+# <prefix>_development and <prefix>_test, the snapshot, and whatever each worktree's .env_overrides.rb
+# names. A name plus digits is one of parallel_tests' copies of a database it keeps.
+# Anything else that makes checkouts of the app must write its database names to .env_overrides.rb
+# before creating them, or this drops them.
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+paths=$(git -C "$WT_MAIN" worktree list --porcelain | sed -n 's/^worktree //p')
+[ -n "$paths" ] || die "couldn't list the checkouts, so no database is safe to drop"
+live=$(
+  printf '%s\n' "$DEV_DB" "$TEST_DB" "$SNAPSHOT_DB"
+  while read -r path; do
+    sed -nE "s/^ENV\['DATABASE(_TEST)?_NAME'\] \|\|= '([^']+)'.*/\2/p" "$path/.env_overrides.rb" 2>/dev/null || true
+  done <<<"$paths"
+)
+
+psql -X -d postgres -Atc "SELECT datname FROM pg_database WHERE datname LIKE '${DB_PREFIX}\_%' ORDER BY 1" |
+  while read -r db; do
+    [ -n "$db" ] || continue
+    grep -qxF -e "$db" -e "${db%"${db##*[!0-9]}"}" <<<"$live" && continue
+    if [ -n "${WT_DRY_RUN:-}" ]; then
+      echo "would drop $db"
+    else
+      dropdb --force "$db" && echo "Dropped $db"
+    fi
+  done

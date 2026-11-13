@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# wt serve hook: runs the Procfile (WT_PROCFILE, default Procfile.dev) with foreman, from the checkout
+set -euo pipefail
+procfile=${WT_PROCFILE:-Procfile.dev}
+if command -v portless >/dev/null && ! portless doctor 2>&1 | grep -q "Proxy is responding"; then
+  echo "wt: the portless proxy isn't running; start it once with: sudo portless service install" >&2
+fi
+# Gems are per Ruby version, so a Ruby bump leaves the checkout's Ruby without foreman
+gem list foreman -i --silent >/dev/null || { gem install foreman && { mise reshim 2>/dev/null || true; }; }
+exec foreman start -f "$procfile" -d "$WT_PATH" "$@"

@@ -1,0 +1,557 @@
+#!/usr/bin/env bash
+# wt: one git worktree per branch, set up and torn down by your own hooks.
+#
+#   wt new [target] [base]    Make a worktree, or reopen the one a branch already has. The target is
+#                             a branch, a PR (pr:1234 or #1234), or a ticket (ABC-1234, with
+#                             WT_TICKET_PREFIX and WT_TICKET_BRANCH set). Prompts for it when left out.
+#   wt setup                  Run WT_ON_SETUP in the worktree you're in
+#   wt serve                  Run WT_SERVE in the checkout you're in, setting it up first if needed
+#   wt url                    Print this checkout's URL (WT_URL)
+#   wt open                   Open this checkout's URL in the browser
+#   wt ls                     Every checkout with its PR, CI, uncommitted files, distance from the
+#                             base branch, unpushed commits, and last commit
+#   wt path [branch]          Print a branch's worktree path (the main checkout without a branch)
+#   wt rm [--force] <branch>  Remove a branch's worktree; keeps the branch
+#   wt prune                  Remove clean worktrees whose PR merged and delete their branches; ask
+#                             about ones whose PR closed or that sat idle; then wt gc
+#   wt gc [--dry-run]         Forget missing worktrees and run WT_ON_GC to clean up after them
+#   wt config                 Show the settings in effect here and where they came from
+#   wt <name> [args]          Run the wt-<name> command from WT_COMMANDS or PATH
+#
+# Settings: ~/.config/wt/config, then ~/.config/wt/projects/<repo>.env for the repo you're in.
+# See https://github.com/gavinomelia/wt#readme and configure.md.
+set -euo pipefail
+
+die() { echo "wt: $*" >&2; exit 1; }
+say() { echo "wt: $*" >&2; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+trim() { printf '%s' "$1" | tr -d '[:space:]'; }
+
+# The package root, following npm's bin symlink without GNU readlink -f
+self=${BASH_SOURCE[0]}
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+WT_HOME=$(cd "$(dirname "$self")/.." && pwd)
+WT_VERSION=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$WT_HOME/package.json" 2>/dev/null || true)
+
+usage() { sed -n '2,/^set -euo pipefail/{/^set /!p;}' "$self" | sed 's/^# \{0,1\}//'; }
+
+# --- settings ----------------------------------------------------------------------------------
+
+WT_CONFIG_DIR=${WT_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/wt}
+WT_GLOBAL_CONFIG=$WT_CONFIG_DIR/config
+WT_PROJECT_CONFIG=
+
+# set -a exports every setting, so hooks and wt-<name> commands see them all
+source_config() { set -a; . "$1"; set +a; }
+
+# The main checkout is the first entry of `git worktree list`, so this works from any worktree
+main_of() { { git -C "$1" worktree list --porcelain 2>/dev/null || true; } | sed -n '1s/^worktree //p'; }
+
+load_config() {
+  local main
+  [ ! -f "$WT_GLOBAL_CONFIG" ] || source_config "$WT_GLOBAL_CONFIG"
+  main=$(main_of .)
+  # Outside a repo (a key binding fired from a pane in $HOME, say) WT_MAIN picks the project
+  [ -n "$main" ] || main=${WT_MAIN:-}
+  WT_MAIN=$main
+  if [ -n "$WT_MAIN" ]; then
+    [ -d "$WT_MAIN" ] || die "WT_MAIN is $WT_MAIN, which doesn't exist"
+    WT_REPO=$(basename "$WT_MAIN")
+    WT_PROJECT_CONFIG=$WT_CONFIG_DIR/projects/$WT_REPO.env
+    [ ! -f "$WT_PROJECT_CONFIG" ] || source_config "$WT_PROJECT_CONFIG"
+  fi
+  WT_DIR=${WT_DIR:-}
+  WT_BASE=${WT_BASE:-}
+  WT_REMOTE=${WT_REMOTE:-origin}
+  WT_TICKET_PREFIX=${WT_TICKET_PREFIX:-}
+  WT_TICKET_BRANCH=${WT_TICKET_BRANCH:-}
+  WT_TICKET_PROMPT=${WT_TICKET_PROMPT:-'Read issue %s. Summarize what it asks for and any open questions, then wait for instructions.'}
+  WT_PR_PROMPT=${WT_PR_PROMPT:-'This checkout is PR #%s, here for review. Read it with gh pr view %s and its diff against its base. Summarize what it changes, then wait for instructions.'}
+  WT_ON_OPEN=${WT_ON_OPEN:-}
+  WT_ON_SETUP=${WT_ON_SETUP:-}
+  WT_ON_REMOVE=${WT_ON_REMOVE:-}
+  WT_ON_GC=${WT_ON_GC:-}
+  WT_SERVE=${WT_SERVE:-}
+  WT_URL=${WT_URL:-}
+  WT_IDLE_DAYS=${WT_IDLE_DAYS:-14}
+  WT_COMMANDS=${WT_COMMANDS:-$WT_CONFIG_DIR/commands}
+  export WT_MAIN WT_REPO WT_DIR WT_BASE WT_REMOTE WT_CONFIG_DIR WT_HOME
+}
+
+need_main() {
+  [ -n "${WT_MAIN:-}" ] || die "run this inside a git checkout, or set WT_MAIN in $WT_GLOBAL_CONFIG"
+  [ -n "$WT_DIR" ] || WT_DIR=$(dirname "$WT_MAIN")/worktrees/$WT_REPO
+  [ -n "$WT_BASE" ] || WT_BASE=$(default_base)
+  export WT_DIR WT_BASE
+}
+
+# origin's default branch, or main
+default_base() {
+  local head
+  head=$(git -C "$WT_MAIN" symbolic-ref --quiet --short "refs/remotes/$WT_REMOTE/HEAD" 2>/dev/null) || true
+  if [ -n "$head" ]; then echo "${head#"$WT_REMOTE"/}"; else echo main; fi
+}
+
+# The remote's copy of the base when there is one, since the local base branch is often stale
+base_ref() {
+  if git -C "$WT_MAIN" show-ref --verify --quiet "refs/remotes/$WT_REMOTE/$WT_BASE"; then
+    echo "$WT_REMOTE/$WT_BASE"
+  else
+    echo "$WT_BASE"
+  fi
+}
+
+has_remote() { git -C "$WT_MAIN" remote get-url "$WT_REMOTE" >/dev/null 2>&1; }
+
+# Runs a hook: a bash command from the settings. Its inputs are WT_* environment variables, and any
+# args are there as "$@" without being appended to the command.
+run_hook() {
+  local name=$1 cmd=$2
+  shift 2
+  bash -c "$cmd" "wt-$name" "$@"
+}
+
+# --- checkouts ---------------------------------------------------------------------------------
+
+checkout_root() { git rev-parse --show-toplevel 2>/dev/null || die "not inside a git checkout"; }
+
+# path<TAB>branch for every checkout, the main one first; branch is empty for a detached checkout
+worktrees() {
+  git -C "$WT_MAIN" worktree list --porcelain |
+    awk '/^worktree /{path=substr($0,10); branch=""} /^branch /{branch=substr($0,19)} /^$/{print path "\t" branch}'
+}
+
+path_for_branch() { worktrees | awk -F'\t' -v b="$1" '$2 == b { print $1; exit }'; }
+
+# feature/x and fix_y live at <WT_DIR>/feature-x and <WT_DIR>/fix-y
+dir_for_branch() { echo "$WT_DIR/$(printf '%s' "$1" | tr '/_' '--')"; }
+
+# The setup marker sits in the worktree's own git dir, so it never shows up in the checkout
+setup_marker() { echo "$(git -C "$1" rev-parse --path-format=absolute --git-dir)/wt-setup-done"; }
+
+cmd_path() {
+  need_main
+  local path
+  if [ -z "${1:-}" ]; then echo "$WT_MAIN"; return; fi
+  path=$(path_for_branch "$1")
+  [ -n "$path" ] || die "no worktree for $1"
+  echo "$path"
+}
+
+# --- new ---------------------------------------------------------------------------------------
+
+# Agent names and labels should be short, so a ticket branch is named by its ticket number and
+# labeled by the rest: "abc-2558-add-operating-hours" is agent "abc-2558", label "add operating hours"
+ticket_of() {
+  local re
+  [ -n "$WT_TICKET_PREFIX" ] || return 0
+  re="^($(lower "$WT_TICKET_PREFIX")-[0-9]+)"
+  [[ $(lower "$1") =~ $re ]] && echo "${BASH_REMATCH[1]}"
+  return 0
+}
+name_for() { local t; t=$(ticket_of "$1"); echo "${t:-$1}"; }
+label_for() {
+  local t rest
+  t=$(ticket_of "$1")
+  rest=${1:${#t}}
+  if [ -n "$t" ] && [ "${rest:0:1}" = - ]; then echo "${rest:1}" | tr '-' ' '; else echo "$1"; fi
+}
+
+# Turns what was typed into WT_BRANCH, WT_LABEL, WT_NAME, and WT_PROMPT (the agent's first message)
+resolve_target() {
+  local target=$1 json number ticket_re pr_re='^(pr:|#)([0-9]+)$'
+  WT_PROMPT=
+  ticket_re="^$(upper "${WT_TICKET_PREFIX:-}")-[0-9]+$"
+  if [[ $target =~ $pr_re ]]; then
+    number=${BASH_REMATCH[2]}
+    command -v gh >/dev/null || die "pr:$number needs the GitHub CLI (gh)"
+    json=$(cd "$WT_MAIN" && gh pr view "$number" --json headRefName,title,isCrossRepository) || die "couldn't find PR #$number"
+    [ "$(jq -r .isCrossRepository <<<"$json")" = false ] || die "PR #$number comes from a fork"
+    WT_BRANCH=$(jq -r .headRefName <<<"$json")
+    WT_LABEL="PR $number: $(jq -r .title <<<"$json")"
+    WT_NAME=pr-$number
+    WT_PROMPT=${WT_PR_PROMPT//%s/$number}
+  elif [ -n "$WT_TICKET_PREFIX" ] && [[ $(upper "$target") =~ $ticket_re ]]; then
+    target=$(upper "$target")
+    [ -n "$WT_TICKET_BRANCH" ] || die "set WT_TICKET_BRANCH to look up $target's branch, or pass the branch name"
+    WT_BRANCH=$(WT_TICKET=$target run_hook ticket-branch "$WT_TICKET_BRANCH" "$target") || true
+    WT_BRANCH=$(trim "$WT_BRANCH")
+    [ -n "$WT_BRANCH" ] || die "couldn't look up $target's branch; pass its branch name instead"
+    WT_LABEL=$(label_for "$WT_BRANCH")
+    WT_NAME=$(name_for "$WT_BRANCH")
+    WT_PROMPT=${WT_TICKET_PROMPT//%s/$target}
+  else
+    WT_BRANCH=$target
+    WT_LABEL=$(label_for "$WT_BRANCH")
+    WT_NAME=$(name_for "$WT_BRANCH")
+  fi
+  git check-ref-format --branch "$WT_BRANCH" >/dev/null 2>&1 || die "$WT_BRANCH isn't a valid branch name"
+}
+
+# A branch someone already pushed (a teammate's ticket, a PR) is checked out rather than recreated
+fetch_branch() {
+  has_remote || return 0
+  git -C "$WT_MAIN" show-ref --verify --quiet "refs/heads/$1" && return
+  git -C "$WT_MAIN" ls-remote --exit-code --heads "$WT_REMOTE" "$1" >/dev/null 2>&1 || return 0
+  git -C "$WT_MAIN" fetch --quiet "$WT_REMOTE" "$1:$1"
+  git -C "$WT_MAIN" branch --quiet --set-upstream-to "$WT_REMOTE/$1" "$1"
+}
+
+# New branches start from the remote's copy of the base, fetched first, so they never start stale
+start_point() {
+  local base=$1
+  if has_remote && git -C "$WT_MAIN" fetch --quiet "$WT_REMOTE" "$base" 2>/dev/null; then
+    echo "$WT_REMOTE/$base"
+  else
+    echo "$base"
+  fi
+}
+
+open_worktree() {
+  export WT_PATH WT_BRANCH WT_LABEL WT_NAME WT_PROMPT WT_CREATED
+  if [ -n "$WT_ON_OPEN" ]; then
+    run_hook on-open "$WT_ON_OPEN"
+    return
+  fi
+  if [ "$WT_CREATED" = 1 ] && [ -n "$WT_ON_SETUP" ]; then
+    (cd "$WT_PATH" && cmd_setup)
+  fi
+  echo "$WT_PATH"
+  [ -z "$WT_SERVE" ] || say "next: cd $WT_PATH && wt serve"
+}
+
+cmd_new() {
+  need_main
+  local target=${1:-} base=${2:-$WT_BASE} existing
+  # readline (-e) understands bracketed paste; plain `read` keeps a paste's escape codes
+  if [ -z "$target" ] && [ -t 0 ]; then
+    read -erp "branch, ${WT_TICKET_PREFIX:+$(upper "$WT_TICKET_PREFIX")-1234, }or pr:1234: " target
+  fi
+  target=${target//$'\e[200~'/}
+  target=${target//$'\e[201~'/}
+  target=${target//[^A-Za-z0-9._\/:#-]/}
+  [ -n "$target" ] || die "usage: wt new <branch|pr:1234${WT_TICKET_PREFIX:+|$(upper "$WT_TICKET_PREFIX")-1234}> [base]"
+  resolve_target "$target"
+
+  existing=$(path_for_branch "$WT_BRANCH")
+  if [ -n "$existing" ]; then
+    [ "$existing" != "$WT_MAIN" ] || die "$WT_BRANCH is checked out in the main checkout; switch that to another branch first"
+    WT_PATH=$existing WT_CREATED=0
+    open_worktree
+    return
+  fi
+
+  WT_PATH=$(dir_for_branch "$WT_BRANCH")
+  [ ! -e "$WT_PATH" ] || die "$WT_PATH already exists but isn't $WT_BRANCH's worktree"
+
+  [ -z "$WT_ON_GC" ] || (cmd_gc) >/dev/null || say "the gc hook failed; run wt gc to see why"
+
+  fetch_branch "$WT_BRANCH"
+  mkdir -p "$(dirname "$WT_PATH")"
+  if git -C "$WT_MAIN" show-ref --verify --quiet "refs/heads/$WT_BRANCH"; then
+    git -C "$WT_MAIN" worktree add --quiet "$WT_PATH" "$WT_BRANCH"
+  else
+    git -C "$WT_MAIN" worktree add --quiet --no-track -b "$WT_BRANCH" "$WT_PATH" "$(start_point "$base")"
+  fi
+  WT_CREATED=1
+  open_worktree
+}
+
+# --- setup, serve, open ------------------------------------------------------------------------
+
+cmd_setup() {
+  local root
+  root=$(checkout_root)
+  [ "$root" != "$WT_MAIN" ] || die "setup is for linked worktrees; the main checkout is already set up"
+  [ -n "$WT_ON_SETUP" ] || die "set WT_ON_SETUP to say how a worktree gets set up"
+  cd "$root"
+  WT_PATH=$root WT_BRANCH=$(git branch --show-current)
+  export WT_PATH WT_BRANCH
+  run_hook on-setup "$WT_ON_SETUP"
+  touch "$(setup_marker "$root")"
+}
+
+cmd_serve() {
+  local root
+  root=$(checkout_root)
+  [ -n "$WT_SERVE" ] || die "set WT_SERVE to the command that runs the app"
+  if [ "$root" != "$WT_MAIN" ] && [ -n "$WT_ON_SETUP" ] && [ ! -e "$(setup_marker "$root")" ]; then
+    (cmd_setup)
+  fi
+  cd "$root"
+  WT_PATH=$root WT_BRANCH=$(git branch --show-current)
+  export WT_PATH WT_BRANCH
+  exec bash -c "$WT_SERVE" wt-serve "$@"
+}
+
+cmd_url() {
+  local root
+  root=$(checkout_root)
+  [ -n "$WT_URL" ] || die "set WT_URL to a command that prints this checkout's URL"
+  cd "$root"
+  WT_PATH=$root WT_BRANCH=$(git branch --show-current)
+  export WT_PATH WT_BRANCH
+  run_hook url "$WT_URL"
+}
+
+cmd_open() {
+  local url
+  url=$(cmd_url)
+  [ -n "$url" ] || die "WT_URL printed nothing"
+  if [ -n "${WT_BROWSER:-}" ]; then "$WT_BROWSER" "$url"
+  elif command -v xdg-open >/dev/null; then xdg-open "$url" >/dev/null 2>&1 &
+  elif command -v open >/dev/null; then open "$url"
+  else echo "$url"
+  fi
+}
+
+# --- ls ----------------------------------------------------------------------------------------
+
+have_gh() { command -v gh >/dev/null && command -v jq >/dev/null && has_remote; }
+
+# branch<TAB>number<TAB>state<TAB>head sha for recent PRs, newest first. State is OPEN, DRAFT,
+# MERGED, or CLOSED.
+pr_index() {
+  have_gh || return 0
+  (cd "$WT_MAIN" && gh pr list --state all --limit 300 --json number,state,isDraft,headRefName,headRefOid \
+    --jq '.[] | [.headRefName, .number, (if .isDraft and .state == "OPEN" then "DRAFT" else .state end), .headRefOid] | @tsv' 2>/dev/null) ||
+    say "couldn't list PRs with gh"
+}
+
+# branch<TAB>pass|fail|running for open PRs. Asking for checks on every PR takes ten times as long.
+ci_index() {
+  have_gh || return 0
+  (cd "$WT_MAIN" && gh pr list --state open --limit 100 --json headRefName,statusCheckRollup \
+    --jq '.[] | [.headRefName, ((.statusCheckRollup // []) | map(.conclusion // .state // "") |
+      if length == 0 then "-"
+      elif any(.[]; . == "FAILURE" or . == "ERROR" or . == "TIMED_OUT" or . == "CANCELLED" or . == "ACTION_REQUIRED" or . == "STARTUP_FAILURE") then "fail"
+      elif any(.[]; . == "" or . == "PENDING" or . == "EXPECTED") then "running"
+      else "pass" end)] | @tsv') 2>/dev/null || true
+}
+
+row_for() { [ -n "$1" ] && awk -F'\t' -v b="$1" '$1 == b { print; exit }' <<<"$2"; }
+
+cmd_ls() {
+  need_main
+  local prs ci path branch pr number state pr_column checks changed counts unpushed age base
+  base=$(base_ref)
+  prs=$(pr_index)
+  ci=$(ci_index)
+  {
+    printf 'WORKTREE\tPR\tCI\tCHANGED\t%s\tUNPUSHED\tLAST COMMIT\n' "$(upper "$WT_BASE")"
+    while IFS=$'\t' read -r path branch; do
+      [ -d "$path" ] || continue
+      pr_column=-
+      if pr=$(row_for "$branch" "$prs") && [ -n "$pr" ]; then
+        IFS=$'\t' read -r _ number state _ <<<"$pr"
+        pr_column="#$number $(lower "$state")"
+      fi
+      checks=$(row_for "$branch" "$ci" | cut -f2) || true
+      changed=$(trim "$(git -C "$path" status --porcelain | wc -l)")
+      counts=$(git -C "$path" rev-list --left-right --count "$base...HEAD" 2>/dev/null) || counts="? ?"
+      unpushed=$(git -C "$path" rev-list --count '@{u}..HEAD' 2>/dev/null) || unpushed="no upstream"
+      age=$(git -C "$path" log -1 --format=%cr 2>/dev/null) || age=-
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${branch:-$(basename "$path") (detached)}" "$pr_column" \
+        "${checks:--}" "$changed" "↓${counts%%[[:space:]]*} ↑${counts##*[[:space:]]}" "$unpushed" "$age"
+    done < <(worktrees)
+  } | column -t -s $'\t'
+}
+
+# --- rm, prune, gc -----------------------------------------------------------------------------
+
+cmd_rm() {
+  need_main
+  local force= branch path
+  [ "${1:-}" = --force ] && { force=1; shift; }
+  branch=${1:-}
+  [ -n "$branch" ] || die "usage: wt rm [--force] <branch>"
+  path=$(path_for_branch "$branch")
+  [ -n "$path" ] || die "no worktree for $branch"
+  [ "$path" != "$WT_MAIN" ] || die "$branch is checked out in the main checkout"
+  case "$PWD/" in "$path"/*) die "you're inside $path; run wt rm from another checkout" ;; esac
+
+  # Git refuses any checkout with an initialized submodule without --force, so check for
+  # uncommitted work here and force-remove only what's clean
+  if [ -z "$force" ] && [ -d "$path" ] && [ -n "$(git -C "$path" status --porcelain --ignore-submodules=none)" ]; then
+    die "$path has uncommitted changes; commit them or use wt rm --force"
+  fi
+
+  WT_PATH=$path WT_BRANCH=$branch
+  export WT_PATH WT_BRANCH
+  # set -e is off when the caller is `cmd_rm || ...`, so each failure has to stop us explicitly
+  if [ -n "$WT_ON_REMOVE" ]; then
+    run_hook on-remove "$WT_ON_REMOVE" || die "the on-remove hook failed, so $path was kept"
+  fi
+  if [ -n "$(path_for_branch "$branch")" ]; then
+    git -C "$WT_MAIN" worktree remove --force "$path" || die "couldn't remove $path"
+  fi
+  [ -z "$WT_ON_GC" ] || cmd_gc
+  echo "Removed $path (branch $branch kept)"
+}
+
+# Why a branch's worktree can go, or nothing when it should stay. A merged PR counts only when the
+# branch has nothing newer than what merged.
+stale_reason() {
+  local branch=$1 prs=$2 pr number state head last_commit idle_days
+  if pr=$(row_for "$branch" "$prs") && [ -n "$pr" ]; then
+    IFS=$'\t' read -r _ number state head <<<"$pr"
+    case $state in
+      MERGED) git -C "$WT_MAIN" merge-base --is-ancestor "$branch" "$head" 2>/dev/null && echo merged ;;
+      CLOSED) echo "PR #$number was closed without merging" ;;
+    esac
+    return 0
+  fi
+  last_commit=$(git -C "$WT_MAIN" log -1 --format=%ct "$branch" 2>/dev/null) || return 0
+  idle_days=$((($(date +%s) - last_commit) / 86400))
+  [ "$idle_days" -lt "$WT_IDLE_DAYS" ] || echo "it has no PR and no commits for $idle_days days"
+}
+
+# Reads the answer from the terminal, since prune's stdin is the worktree list
+confirm() {
+  local answer
+  [ -t 2 ] || return 1
+  read -rp "$1 [y/N] " answer </dev/tty || return 1
+  [[ $answer == [yY]* ]]
+}
+
+# gh stack rebases every branch in a stack onto the one below it, so a merged branch must stay while
+# anything above it is still in flight. `gh stack sync` never drops merged branches from its record,
+# so once every PR in the stack has merged, the branches can go. A branch with no PR yet, a PR missing
+# from the index, or an unreadable record all count as still in flight.
+in_live_gh_stack() {
+  local branch=$1 prs=$2 file numbers number
+  file="$(git -C "$WT_MAIN" rev-parse --path-format=absolute --git-common-dir)/gh-stack"
+  [ -f "$file" ] || return 1
+  numbers=$(jq -r --arg b "$branch" \
+    '.stacks[] | select(any(.branches[]; .branch == $b)) | .branches[] | (.pullRequest.number // "none")' \
+    "$file" 2>/dev/null) || return 0
+  for number in $numbers; do
+    awk -F'\t' -v n="$number" '$2 == n && $3 == "MERGED" { found = 1 } END { exit !found }' <<<"$prs" || return 0
+  done
+  return 1
+}
+
+delete_branch() {
+  if in_live_gh_stack "$1" "$2"; then
+    echo "Kept branch $1, whose gh stack still has unmerged PRs"
+  else
+    git -C "$WT_MAIN" branch -D --quiet "$1" && echo "Deleted branch $1"
+  fi
+}
+
+cmd_prune() {
+  need_main
+  local prs path branch reason
+  have_gh || say "without gh, only idle worktrees can be pruned"
+  cd "$WT_MAIN"
+  prs=$(pr_index)
+  while IFS=$'\t' read -r path branch; do
+    [ -n "$branch" ] && [ "$path" != "$WT_MAIN" ] || continue
+    reason=$(stale_reason "$branch" "$prs")
+    [ -n "$reason" ] || continue
+    if [ -d "$path" ] && [ -n "$(git -C "$path" status --porcelain --ignore-submodules=none)" ]; then
+      say "kept $branch, which has uncommitted changes ($reason)"
+      continue
+    fi
+    if [ "$reason" = merged ]; then
+      echo "$branch: its PR merged"
+    else
+      confirm "Remove the $branch worktree? $reason." || continue
+    fi
+    (WT_ON_GC= cmd_rm --force "$branch") || { say "skipped $branch"; continue; }
+    [ "$reason" != merged ] || delete_branch "$branch" "$prs"
+  done < <(worktrees)
+
+  while IFS=$'\t' read -r branch path; do
+    [ -z "$path" ] && [ "$branch" != "$WT_BASE" ] || continue
+    [ "$(stale_reason "$branch" "$prs")" != merged ] || delete_branch "$branch" "$prs"
+  done < <(git -C "$WT_MAIN" for-each-ref --format='%(refname:short)%09%(worktreepath)' refs/heads)
+
+  cmd_gc
+}
+
+# Removing a checkout by hand, from git, or from another tool skips `wt rm`, so the gc hook sweeps up
+# after all of them
+cmd_gc() {
+  need_main
+  WT_DRY_RUN=
+  [ "${1:-}" = --dry-run ] && WT_DRY_RUN=1
+  export WT_DRY_RUN
+  [ -n "$WT_DRY_RUN" ] || git -C "$WT_MAIN" worktree prune
+  [ -z "$WT_ON_GC" ] || run_hook on-gc "$WT_ON_GC"
+}
+
+# --- config, commands --------------------------------------------------------------------------
+
+cmd_config() {
+  local v
+  [ -n "${WT_MAIN:-}" ] && need_main
+  echo "wt ${WT_VERSION:-?} at $WT_HOME"
+  printf 'global settings:  %s%s\n' "$WT_GLOBAL_CONFIG" "$([ -f "$WT_GLOBAL_CONFIG" ] || echo ' (missing)')"
+  if [ -n "$WT_PROJECT_CONFIG" ]; then
+    printf 'project settings: %s%s\n' "$WT_PROJECT_CONFIG" "$([ -f "$WT_PROJECT_CONFIG" ] || echo ' (missing)')"
+  fi
+  echo
+  for v in WT_MAIN WT_DIR WT_BASE WT_REMOTE WT_TICKET_PREFIX WT_TICKET_BRANCH WT_ON_OPEN WT_ON_SETUP \
+    WT_SERVE WT_URL WT_ON_REMOVE WT_ON_GC WT_IDLE_DAYS WT_COMMANDS; do
+    printf '%-17s %s\n' "$v" "${!v:-}"
+  done
+  echo
+  echo "commands:"
+  list_commands | sed 's/^/  wt /'
+}
+
+# wt-<name> executables from WT_COMMANDS, then PATH
+find_command() {
+  local dir
+  local IFS=:
+  for dir in $WT_COMMANDS $PATH; do
+    [ -n "$dir" ] && [ -x "$dir/wt-$1" ] && [ ! -d "$dir/wt-$1" ] && { echo "$dir/wt-$1"; return; }
+  done
+  return 1
+}
+
+list_commands() {
+  local dir file
+  local IFS=:
+  for dir in $WT_COMMANDS $PATH; do
+    for file in "$dir"/wt-*; do
+      if [ -x "$file" ] && [ ! -d "$file" ]; then basename "$file" | sed 's/^wt-//'; fi
+    done
+  done 2>/dev/null | awk '!seen[$0]++'
+  return 0
+}
+
+case "${1:-}" in
+  "" | -h | --help | help) usage; exit 0 ;;
+  -v | --version | version) echo "${WT_VERSION:-unknown}"; exit 0 ;;
+esac
+
+load_config
+command=$1
+shift
+case $command in
+  new) cmd_new "$@" ;;
+  setup) cmd_setup ;;
+  serve) cmd_serve "$@" ;;
+  url) cmd_url ;;
+  open) cmd_open ;;
+  ls) cmd_ls ;;
+  path) cmd_path "$@" ;;
+  rm) cmd_rm "$@" ;;
+  prune) cmd_prune ;;
+  gc) cmd_gc "$@" ;;
+  config) cmd_config ;;
+  *)
+    if ext=$(find_command "$command"); then
+      [ -z "${WT_MAIN:-}" ] || need_main
+      export WT_COMMANDS
+      exec "$ext" "$@"
+    fi
+    die "no command $command; run wt help"
+    ;;
+esac

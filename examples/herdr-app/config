@@ -1,0 +1,12 @@
+# wt settings for Herdr.app on macOS. Copy these hooks to ~/.config/wt/herdr-app/ and these lines
+# into ~/.config/wt/config. Then merge keys.wt.json into Herdr's key bindings.
+H=$HOME/.config/wt/herdr-app
+
+WT_ON_OPEN=$H/on-open
+WT_ON_REMOVE=$H/on-remove
+WT_COMMANDS=$HOME/.config/wt/commands:$H   # adds wt key, wt scratch, wt layout, wt review
+
+# The agent in the code layout: claude or codex
+WT_AGENT=claude
+# Runs in a pane under the agent; leave empty for none
+WT_EDITOR_COMMAND=

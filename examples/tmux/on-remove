@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# wt on-remove hook for tmux: kills the worktree's windows before wt removes it.
+set -euo pipefail
+command -v tmux >/dev/null && tmux list-sessions >/dev/null 2>&1 || exit 0
+tmux list-windows -a -F '#{window_id} #{@wt_path}' | awk -v p="$WT_PATH" '$2 == p { print $1 }' |
+  while read -r window; do tmux kill-window -t "$window"; done

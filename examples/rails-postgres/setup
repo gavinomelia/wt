@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# wt on-setup hook for a Rails app on PostgreSQL. Gives the worktree:
+#   - its own dev database, cloned from the snapshot (or the dev database when there's none);
+#   - its own test databases, one per CPU when the app uses parallel_tests;
+#   - symlinks to the main checkout's credentials keys, and copies of node_modules and built assets;
+#   - a git-ignored .env_overrides.rb naming those databases, which the app loads before its defaults;
+#   - optionally, a dev-only initializer that signs the browser straight in as WT_AUTO_LOGIN_EMAIL.
+# Safe to rerun: what already exists is kept.
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+cd "$WT_PATH"
+slug=$(db_slug "$WT_BRANCH")
+case $slug in development | test* | wt_snapshot | snapshot) die "pick a branch name that isn't $WT_BRANCH" ;; esac
+
+for key in "$WT_MAIN"/config/master.key "$WT_MAIN"/config/credentials/*.key; do
+  [ -e "$key" ] || continue
+  link=${key#"$WT_MAIN"/}
+  [ -e "$link" ] || { mkdir -p "$(dirname "$link")"; ln -s "$key" "$link"; }
+done
+if [ -f "$WT_MAIN/.mise.local.toml" ] && [ ! -f .mise.local.toml ]; then
+  cp "$WT_MAIN/.mise.local.toml" .
+  mise trust --quiet . 2>/dev/null || true
+fi
+
+if [ ! -f .env_overrides.rb ]; then
+  cat >.env_overrides.rb <<RUBY
+# Written by wt's setup hook: this worktree's own databases, so migrations and specs don't collide
+ENV['DATABASE_NAME'] ||= '${DB_PREFIX}_${slug}'
+ENV['DATABASE_TEST_NAME'] ||= '${DB_PREFIX}_test_${slug}'
+RUBY
+  # Rails' default ".localhost" allows one subdomain level; portless serves <branch>.<app>.localhost
+  [ -z "${WT_APP:-}" ] || echo "ENV['ADDITIONAL_HOST'] ||= '.${WT_APP}.localhost'" >>.env_overrides.rb
+  [ -z "${WT_AUTO_LOGIN_EMAIL:-}" ] || echo "ENV['WT_AUTO_LOGIN_EMAIL'] ||= '${WT_AUTO_LOGIN_EMAIL}'" >>.env_overrides.rb
+fi
+
+# The exclude file is shared by every worktree, so the initializer can never be committed
+if [ -n "${WT_AUTO_LOGIN_EMAIL:-}" ]; then
+  initializer=config/initializers/worktree_auto_login.rb
+  exclude=$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude
+  grep -qxF "/$initializer" "$exclude" 2>/dev/null || echo "/$initializer" >>"$exclude"
+  [ -e "$initializer" ] || cp "${WT_AUTO_LOGIN_SOURCE:-$HOOKS/worktree_auto_login.rb}" "$initializer"
+fi
+
+git submodule update --init --recursive --quiet
+
+# Copy-on-write copies turn the installs into quick no-ops
+[ -d node_modules ] || [ ! -d "$WT_MAIN/node_modules" ] || clone_files "$WT_MAIN/node_modules" .
+[ ! -d "$WT_MAIN/app/assets/builds" ] || { mkdir -p app/assets/builds; clone_files "$WT_MAIN/app/assets/builds/." app/assets/builds/; }
+bundle install --quiet
+[ ! -f yarn.lock ] || yarn install --silent
+
+db=${DB_PREFIX}_${slug}
+if ! db_exists "$db"; then
+  source=$SNAPSHOT_DB
+  db_exists "$source" || source=$DEV_DB
+  clone_db "$source" "$db" ||
+    die "couldn't clone $source while it's in use. Stop the main checkout's server once and run wt snapshot, then rerun wt setup"
+fi
+bin/rails db:migrate
+RAILS_ENV=test bin/rails db:prepare
+# parallel_tests and turbo_tests run a process per CPU, each against "<test db><TEST_ENV_NUMBER>"
+! grep -q '^    parallel_tests ' Gemfile.lock 2>/dev/null || bin/rails parallel:create parallel:load_schema
+
+echo "Ready${WT_URL:+: $(wt url 2>/dev/null || true)}"

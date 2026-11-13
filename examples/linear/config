@@ -1,0 +1,8 @@
+# wt settings for Linear tickets. Copy ticket-branch to ~/.config/wt/linear/ and these lines into your
+# project settings (~/.config/wt/projects/<repo>.env). Then `wt new ABC-1234` checks out the issue's branch.
+
+# Your Linear team key; lowercase is fine
+WT_TICKET_PREFIX=abc
+WT_TICKET_BRANCH=$HOME/.config/wt/linear/ticket-branch
+# The agent's first message in a ticket's worktree; %s is the issue
+WT_TICKET_PROMPT='Read Linear issue %s with get_issue and list_comments. Summarize what it asks for and any open questions, then wait for instructions.'

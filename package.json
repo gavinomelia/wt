@@ -1,6 +1,6 @@
 {
   "name": "@gavinomelia/wt",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One git worktree per branch, opened, set up, run, and cleaned up by commands you choose. Wire it into herdr, tmux, or any agent harness.",
   "bin": {
     "wt": "bin/wt"

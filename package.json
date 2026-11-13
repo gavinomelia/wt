@@ -6,7 +6,7 @@
     "wt": "bin/wt"
   },
   "files": [
-    "bin",
+    "bin/wt",
     "examples",
     "configure.md",
     "README.md",

@@ -29,14 +29,18 @@ npm install -g @gavinomelia/wt
 wt --version
 ```
 
+With nodenv, nvm, mise, or asdf, global npm packages belong to one Node version. Run the install from your home folder (`cd ~` first) so it goes into your default version. A project that pins a different Node version won't find `wt`, and changing your default version means installing again. Installing from source avoids both, because `wt` doesn't need Node.
+
 From source:
 
 ```sh
 git clone https://github.com/gavinomelia/wt ~/src/wt
-npm install -g ~/src/wt        # or: ln -s ~/src/wt/bin/wt ~/.local/bin/wt
+~/src/wt/bin/install
 ```
 
-To upgrade, run `npm update -g @gavinomelia/wt`. Your settings and scripts live in `~/.config/wt` and are never touched. To uninstall, run `npm uninstall -g @gavinomelia/wt`.
+`bin/install` links `wt` into `~/.local/bin`. If it prints a line to add to your shell profile, add it to `~/.zshrc` (or `~/.bashrc`), then open a new terminal.
+
+To upgrade, run `npm update -g @gavinomelia/wt`, or `git pull` in your clone. Your settings and scripts live in `~/.config/wt` and are never touched. To uninstall, run `npm uninstall -g @gavinomelia/wt`, or `rm ~/.local/bin/wt` and delete the clone.
 
 ## Set it up
 
@@ -205,6 +209,7 @@ A few things to know about when they run:
 
 ## Troubleshooting
 
+- **`wt: command not found` in one project.** With a Node version manager, an npm install lives in one Node version, and that project pins another. Install from your home folder, or [from source](#install).
 - **A setting isn't taking effect.** Run `wt config` in the same directory. A repo's settings come from the file named after its main checkout's folder, and a `WT_*` variable in your environment overrides both files.
 - **A key binding does nothing.** Key bindings often run outside any repo, so set `WT_MAIN`. Check that `wt` is on the `PATH` your terminal's server uses. With mise or nvm, that's usually the shims folder.
 - **A script from your settings fails.** They're ordinary commands, so run one by hand with the variables it expects: `WT_PATH=... WT_BRANCH=... ~/.config/wt/tmux/on-open`. To trace `wt` itself, run `bash -x "$(command -v wt)" new my-branch`.
@@ -214,11 +219,24 @@ A few things to know about when they run:
 
 ```sh
 git clone https://github.com/gavinomelia/wt && cd wt
-npm install -g .     # links bin/wt onto your PATH
+bin/install          # links bin/wt into ~/.local/bin
 npm test             # test/smoke.sh: wt against a throwaway repo with stub settings
 ```
 
 Keep `bin/wt` free of anything specific to one terminal, agent, or framework; those belong in settings and `examples/`. `wt init` is the one place that knows about the examples. Keep it running on macOS's bash 3.2: no `${var,,}`, `mapfile`, or GNU-only flags.
+
+CI (`.github/workflows/check.yml`) runs `npm test` on every push, and installs the packed tarball to check that `wt --version` works.
+
+### Releasing
+
+Pushing a `v*` tag publishes to npm through `.github/workflows/release.yml`. It runs `npm test`, stops if the tag doesn't match the `package.json` version, then runs `npm publish --provenance`. It needs no npm token, because npm trusts the workflow (trusted publishing).
+
+```sh
+npm version patch   # or minor / major: bumps package.json, commits, and tags
+git push --follow-tags
+```
+
+Before the first tagged release, open the package's settings on npmjs.com and add a trusted publisher: GitHub Actions, repository `gavinomelia/wt`, workflow `release.yml`.
 
 ## License
 

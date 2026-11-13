@@ -1,0 +1,27 @@
+name: Check
+
+on:
+  # Branches only: a release tag points at a commit that already passed here, and release.yml checks it again.
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm test
+      - run: shellcheck bin/install
+
+  # Installs the tarball npm would publish, so a broken bin path or a missing file fails here, not for users.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm pack
+      - run: npm install -g ./gavinomelia-wt-*.tgz
+      - run: test "$(wt --version)" = "$(node -p "require('./package.json').version")"

@@ -178,3 +178,7 @@ npm test             # test/smoke.sh: wt against a throwaway repo with stub hook
 ```
 
 Keep `bin/wt` free of anything specific to one terminal, agent, or framework; those belong in hooks and `examples/`. Keep it running on macOS's bash 3.2: no `${var,,}`, `mapfile`, or GNU-only flags.
+
+## License
+
+[MIT](LICENSE)

@@ -29,6 +29,8 @@ clone_files() {
   if cp --help 2>&1 | grep -q reflink; then
     cp -an --reflink=auto "$1" "$2"
   else
-    cp -cRpn "$1" "$2" 2>/dev/null || cp -Rpn "$1" "$2"
+    # macOS cp -n exits 1 whenever it skips a file that already exists (a tracked .keep, say), even
+    # though it copied everything else, so a nonzero exit here doesn't mean the copy failed
+    cp -cRpn "$1" "$2" 2>/dev/null || cp -Rpn "$1" "$2" 2>/dev/null || true
   fi
 }

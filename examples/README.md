@@ -71,7 +71,7 @@ A day with it:
 
 ### Jeremy: Herdr.app on macOS, Rails on PostgreSQL
 
-macOS running Herdr.app with Jeremy's own layout and mods. The app is Rails on PostgreSQL 18 on APFS. Like Gavin's, it uses Linear and portless. The app has its `Procfile.pdev` in the repo, and his snapshot database is `<prefix>_snapshot`. His [herdr-config](https://github.com/Jeremy-Walton/herdr-config) runs its own macOS port of `wt` today. This is that setup expressed as `wt` settings, adapted from his script, and it hasn't been run on a Mac yet.
+macOS running Herdr.app with Jeremy's own layout and mods. The app is Rails on PostgreSQL 18 on APFS. Like Gavin's, it uses Linear and portless. The app has its `Procfile.pdev` in the repo, and his snapshot database is `<prefix>_snapshot`. This setup replaced the macOS port of `wt` his [herdr-config](https://github.com/Jeremy-Walton/herdr-config) used to carry, and runs on his Mac.
 
 | Example | Copied to |
 |---|---|
